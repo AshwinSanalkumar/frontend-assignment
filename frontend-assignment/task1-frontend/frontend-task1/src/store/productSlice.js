@@ -1,31 +1,28 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import api from '../api/axios';
+import productService from '../services/productService';
 
 export const fetchProducts = createAsyncThunk('products/fetch', async () => {
-  const res = await api.get('/products/');
-  return res.data;
+  const data = await productService.getProducts();
+  return data;
 });
 
 export const addProduct = createAsyncThunk('products/add', async (formData, { dispatch, rejectWithValue }) => {
   try {
-    // REMOVED: manual Content-Type header
-    // The browser will now automatically set multipart/form-data WITH the boundary
-    await api.post('/products/add/', formData); 
-    
+    await productService.addProduct(formData);
     dispatch(fetchProducts());
   } catch (err) {
-    return rejectWithValue(err.response.data);
+    return rejectWithValue(err.response?.data);
   }
 });
 
 export const deleteProduct = createAsyncThunk('products/delete', async (id) => {
-  await api.delete(`/products/delete/${id}/`);
+  await productService.deleteProduct(id);
   return id;
 });
 
 export const updateProduct = createAsyncThunk('products/update', async ({ id, formData }, { dispatch, rejectWithValue }) => {
   try {
-    await api.put(`/products/update/${id}/`, formData);
+    await productService.updateProduct(id, formData);
     dispatch(fetchProducts());
   } catch (err) {
     return rejectWithValue(err.response?.data || err.message);

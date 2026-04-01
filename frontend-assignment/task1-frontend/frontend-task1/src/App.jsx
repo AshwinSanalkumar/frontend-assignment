@@ -3,11 +3,11 @@ import { useContext } from 'react';
 import { AuthContext, AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import Dashboard from './pages/Overview';
+import Inventory from './pages/Inventory';
 import Register from './pages/Register';
 import ProductDetails from './pages/ProductDetails';
 import Files from './pages/Files';
-import DownloadPage from './pages/DownloadPage';
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useContext(AuthContext);
@@ -22,10 +22,14 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/download/:token" element={<DownloadPage />} />
           <Route path="/dashboard" element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/inventory" element={
+            <ProtectedRoute>
+              <Inventory />
             </ProtectedRoute>
           } />
           <Route path="/product/:id" element={
@@ -38,7 +42,7 @@ function App() {
               <Files />
             </ProtectedRoute>
           } />
-          <Route path="*" element={<Navigate to="/login" />} />
+          <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </Router>
     </AuthProvider>

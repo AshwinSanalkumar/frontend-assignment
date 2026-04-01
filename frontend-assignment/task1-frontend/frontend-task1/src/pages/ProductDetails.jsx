@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useToast } from '../context/ToastContext';
-import { ArrowLeft, Trash2, Pencil, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Trash2, Pencil, X, Image as ImageIcon, AlertCircle, CheckCircle2, Package } from 'lucide-react';
 import { updateProduct, deleteProduct } from '../store/productSlice';
 import Layout from '../components/Layout';
 import Navbar from '../components/Navbar';
-import api from '../api/axios';
+import productService from '../services/productService';
 
 const ProductDetails = () => {
   const { id } = useParams();
@@ -30,17 +30,15 @@ const ProductDetails = () => {
     const fetchProductView = async () => {
       try {
         setLoading(true);
-        const res = await api.get(`/products/view/${id}/`);
-        setProduct(res.data);
-      } catch (err) {
-        addToast({ title: 'Error', description: 'Failed to load product details.', type: 'error' });
+        const data = await productService.getProduct(id);
+        setProduct(data);
       } finally {
         setLoading(false);
       }
     };
     
     fetchProductView();
-  }, [id, addToast]);
+  }, [id]);
 
   useEffect(() => {
     if (product) {
@@ -56,61 +54,51 @@ const ProductDetails = () => {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    
     const data = new FormData();
     data.append('name', formData.name);
     data.append('description', formData.description || '');
     data.append('price', formData.price);
     data.append('stock_quantity', formData.stock_quantity);
-    
-    if (formData.image_file) {
-      data.append('image_file', formData.image_file);
-    }
+    if (formData.image_file) data.append('image_file', formData.image_file);
 
     try {
       await dispatch(updateProduct({ id: product.id, formData: data })).unwrap();
-      
-      const freshData = await api.get(`/products/view/${product.id}/`);
-      setProduct(freshData.data);
-      
-      addToast({ title: 'Success', description: 'Product updated successfully.', type: 'success' });
+      const freshData = await productService.getProduct(product.id);
+      setProduct(freshData);
+      addToast({ title: 'Updated', description: 'Product details refined.', type: 'success' });
       setOpenEdit(false);
     } catch (err) {
-      addToast({ title: 'Error', description: err?.detail || 'Failed to update product.', type: 'error' });
+      addToast({ title: 'Error', description: err?.detail || 'Failed to update.', type: 'error' });
     }
   };
 
   const handleDelete = async () => {
     const confirmDelete = window.confirm("Are you sure you want to delete this product?");
     if (!confirmDelete) return;
-
     try {
       await dispatch(deleteProduct(product.id)).unwrap();
-      addToast({ title: 'Deleted', description: 'Product removed from inventory.', type: 'success' });
-      navigate('/dashboard');
+      addToast({ title: 'Removed', description: 'Item deleted from inventory.', type: 'success' });
+      navigate('/inventory');
     } catch (err) {
-      addToast({ title: 'Error', description: 'Failed to delete product.', type: 'error' });
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setFormData({ ...formData, image_file: file });
+      addToast({ title: 'Error', description: 'Deletion failed.', type: 'error' });
     }
   };
 
   if (!product) {
     return (
       <Layout>
-        <div className="flex flex-col items-center justify-center py-20">
+        <div className="flex flex-col items-center justify-center py-32">
           {loading ? (
-            <p className="text-xl font-bold text-slate-500">Loading details...</p>
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
+              <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading Details</p>
+            </div>
           ) : (
             <div className="text-center">
-              <p className="text-2xl font-black text-slate-800 mb-2">Product Not Found</p>
-              <button onClick={() => navigate('/dashboard')} className="text-indigo-600 font-bold hover:underline">
-                Return to Dashboard
+              <Package size={48} className="mx-auto text-slate-200 mb-4" />
+              <p className="text-xl font-bold text-slate-800 mb-2">Item Not Found</p>
+              <button onClick={() => navigate('/inventory')} className="text-indigo-600 font-bold text-sm hover:text-indigo-700">
+                Return to Inventory
               </button>
             </div>
           )}
@@ -121,63 +109,53 @@ const ProductDetails = () => {
 
   return (
     <Layout>
-      <button 
-        onClick={() => navigate('/dashboard')} 
-        className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 mb-8 transition-colors w-fit"
-      >
-        <ArrowLeft size={20} /> Back to Products
-      </button>
+      <div className="mb-6">
+        <button 
+          onClick={() => navigate('/inventory')} 
+          className="group flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-indigo-600 transition-all"
+        >
+          <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-1" /> Back to Inventory
+        </button>
+      </div>
 
-      <Navbar title={product.name} description={`Listing ID: ${product.id}`}>
-        <div className="flex items-center gap-4">
+      <Navbar title={product.name} description={`Reference ID: #${product.id.toString().padStart(4, '0')}`}>
+        <div className="flex items-center gap-3">
           <Dialog.Root open={openEdit} onOpenChange={setOpenEdit}>
             <Dialog.Trigger asChild>
-              <button className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-6 py-3 rounded-2xl font-bold shadow-sm flex items-center gap-2 transition-all">
-                <Pencil size={20} /> Edit Product
+              <button className="bg-slate-900 hover:bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-all flex items-center gap-2 active:scale-95">
+                <Pencil size={16} /> Edit
               </button>
             </Dialog.Trigger>
             <Dialog.Portal>
-              <Dialog.Overlay className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40" />
-              <Dialog.Content className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-lg border border-slate-100 max-h-[90vh] overflow-y-auto outline-none">
+              <Dialog.Overlay className="fixed inset-0 bg-slate-900/20 backdrop-blur-md z-40" />
+              <Dialog.Content className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-md outline-none">
                 <div className="flex justify-between items-center mb-6">
-                  <Dialog.Title className="text-2xl font-bold">Edit Product</Dialog.Title>
-                  <Dialog.Close className="text-slate-400"><X size={24} /></Dialog.Close>
+                  <Dialog.Title className="text-xl font-bold text-slate-900">Update Product</Dialog.Title>
+                  <Dialog.Close className="text-slate-400 hover:text-slate-600"><X size={20} /></Dialog.Close>
                 </div>
                 
                 <form onSubmit={handleEditSubmit} className="space-y-4">
-                  <input required type="text" placeholder="Name" className="w-full p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
+                  <input required type="text" placeholder="Product Name" className="w-full p-3 bg-slate-50 rounded-xl border border-transparent focus:border-indigo-100 focus:bg-white outline-none transition-all"
                       value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
 
-                  <textarea placeholder="Description" className="w-full p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200 h-24 outline-none focus:ring-2 focus:ring-indigo-500"
+                  <textarea placeholder="Description" className="w-full p-3 bg-slate-50 rounded-xl border border-transparent focus:border-indigo-100 focus:bg-white h-24 outline-none transition-all resize-none"
                       value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
 
-                  <div className="flex gap-4">
-                    <input required type="number" step="0.01" placeholder="Price" className="flex-1 w-full p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
+                  <div className="flex gap-3">
+                    <input required type="number" step="0.01" placeholder="Price" className="w-45 flex-1 p-3 bg-slate-50 rounded-xl border border-transparent focus:border-indigo-100 focus:bg-white outline-none transition-all"
                         value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} />
-                    <input required type="number" placeholder="Stock" className="flex-1 w-full p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
+                    <input required type="number" placeholder="Stock" className="w-45 flex-1 p-3 bg-slate-50 rounded-xl border border-transparent focus:border-indigo-100 focus:bg-white outline-none transition-all"
                         value={formData.stock_quantity} onChange={(e) => setFormData({...formData, stock_quantity: e.target.value})} />
                   </div>
 
-                  <div>
-                    <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <ImageIcon className="w-8 h-8 text-slate-400 mb-2" />
-                        <p className="text-sm text-slate-500 font-medium text-center px-4">
-                          {formData.image_file ? formData.image_file.name : "Click to upload a new image"}
-                        </p>
-                      </div>
-                      <input 
-                        id="file-upload"
-                        type="file" 
-                        className="hidden" 
-                        accept="image/*" 
-                        onChange={handleFileChange} 
-                      />
-                    </label>
-                  </div>
+                  <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-slate-100 border-dashed rounded-2xl cursor-pointer hover:bg-slate-50 transition-all">
+                    <ImageIcon className="w-6 h-6 text-slate-300 mb-2" />
+                    <span className="text-xs text-slate-400 font-medium">{formData.image_file ? formData.image_file.name : "Change Product Image"}</span>
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => setFormData({ ...formData, image_file: e.target.files[0] })} />
+                  </label>
 
-                  <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold mt-4 hover:bg-indigo-700 shadow-lg transition-all">
-                    Update Product Entry
+                  <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold mt-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
+                    Apply Changes
                   </button>
                 </form>
               </Dialog.Content>
@@ -186,61 +164,76 @@ const ProductDetails = () => {
 
           <button 
             onClick={handleDelete}
-            className="bg-red-50 text-red-600 hover:bg-red-100 px-6 py-3 rounded-2xl font-bold shadow-sm flex items-center gap-2 transition-all">
-            <Trash2 size={20} /> Delete Product
+            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 active:scale-95">
+            <Trash2 size={16} /> Delete
           </button>
         </div>
       </Navbar>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-6">
-        <div className="bg-white rounded-[3rem] p-4 shadow-xl shadow-slate-200/50 border border-slate-100 flex items-center justify-center overflow-hidden aspect-square">
-          {product.image ? (
-            <img 
-              src={`http://127.0.0.1:8000${product.image}`} 
-              alt={product.name} 
-              className="w-full h-full object-cover rounded-[2.5rem]"
-              crossOrigin="anonymous"
-              onError={(e) => { e.target.src = 'https://placehold.co/800x800?text=Load+Error'; }}
-            />
-          ) : (
-            <div className="text-slate-300 flex flex-col items-center">
-              <ImageIcon size={64} />
-              <p className="mt-4 font-bold">No Image Available</p>
-            </div>
-          )}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 mt-10">
+        {/* Image Showcase */}
+        <div className="lg:col-span-5">
+          <div className="bg-white rounded-[3.5rem] p-4 shadow-2xl shadow-slate-200/60 border border-slate-50 aspect-square flex items-center justify-center overflow-hidden">
+            {product.image ? (
+              <img 
+                src={`http://127.0.0.1:8000${product.image}`} 
+                alt={product.name} 
+                className="w-full h-full object-cover rounded-[2.8rem]"
+                crossOrigin="anonymous"
+              />
+            ) : (
+              <div className="text-slate-200 flex flex-col items-center">
+                <ImageIcon size={80} strokeWidth={1} />
+                <p className="mt-4 font-bold text-xs uppercase tracking-widest">No Visual Asset</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="space-y-8 flex flex-col justify-center">
+        {/* Content Details */}
+        <div className="lg:col-span-7 flex flex-col justify-center space-y-10">
           <div>
-            <h2 className="text-slate-500 font-bold uppercase tracking-wider mb-2">Description</h2>
-            <p className="text-slate-700 text-lg leading-relaxed">{product.description || "No description provided."}</p>
+            <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-3">Core Description</p>
+            <p className="text-slate-600 text-lg leading-relaxed font-medium">
+              {product.description || "No description has been logged for this item."}
+            </p>
           </div>
 
-          <div className="flex gap-8 border-y border-slate-100 py-8">
+          <div className="flex gap-12 py-8 border-y border-slate-50">
             <div>
-              <h2 className="text-slate-500 font-bold uppercase tracking-wider mb-2">Price</h2>
-              <p className="text-4xl font-black text-indigo-600">${product.price}</p>
+              <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-3">Unit Price</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-indigo-600 text-4xl font-black">₹{product.price}</span>
+                <span className="text-slate-300 font-bold text-sm">INR</span>
+              </div>
             </div>
             <div>
-              <h2 className="text-slate-500 font-bold uppercase tracking-wider mb-2">Stock Level</h2>
-              <div className="flex items-center gap-3">
-                <span className={`text-3xl font-black ${product.stock_quantity > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+              <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-3">Current Inventory</p>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-4xl font-black ${product.stock_quantity > 0 ? 'text-slate-900' : 'text-red-500'}`}>
                   {product.stock_quantity}
                 </span>
-                <span className="text-slate-400 font-bold">Units Available</span>
+                <span className="text-slate-400 font-bold text-sm uppercase tracking-wider">Units</span>
               </div>
             </div>
           </div>
           
-          <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-            <h3 className="font-bold text-slate-800 mb-2">Inventory Status</h3>
-            {product.stock_quantity > 10 ? (
-              <p className="text-slate-600">Product is safely stocked. No immediate action required.</p>
-            ) : product.stock_quantity > 0 ? (
-              <p className="text-orange-600 font-medium">Low stock warning! Consider restocking this item soon.</p>
-            ) : (
-              <p className="text-red-600 font-bold">Out of stock! This item is currently unavailable.</p>
-            )}
+          <div className={`p-6 rounded-[2rem] border flex items-start gap-4 transition-colors ${
+            product.stock_quantity > 10 ? 'bg-emerald-50/50 border-emerald-100 text-emerald-700' : 
+            product.stock_quantity > 0 ? 'bg-orange-50/50 border-orange-100 text-orange-700' : 
+            'bg-red-50/50 border-red-100 text-red-700'
+          }`}>
+            <div className="mt-1">
+              {product.stock_quantity > 10 ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+            </div>
+            <div>
+              <h3 className="font-bold text-sm uppercase tracking-wider mb-1">Status Report</h3>
+              <p className="text-sm font-medium opacity-80">
+                {product.stock_quantity > 10 ? 'Inventory levels are optimal. This product is healthy and ready for distribution.' : 
+                 product.stock_quantity > 0 ? 'Stock is running low. Evaluate sales trends and consider creating a restock order.' : 
+                 'Inventory depleted. This item is hidden from public storefronts until restocked.'}
+              </p>
+            </div>
           </div>
         </div>
       </div>

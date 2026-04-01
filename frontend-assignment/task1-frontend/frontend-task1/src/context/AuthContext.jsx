@@ -6,13 +6,15 @@ export const AuthProvider = ({ children }) => {
   // Sync state with localStorage immediately
   const [user, setUser] = useState(() => {
     const token = localStorage.getItem('access');
-    return token ? { isAuthenticated: true } : null;
+    const username = localStorage.getItem('username');
+    return token ? { isAuthenticated: true, username } : null;
   });
 
   const login = (data) => {
     localStorage.setItem('access', data.access);
     localStorage.setItem('refresh', data.refresh);
-    setUser({ isAuthenticated: true });
+    localStorage.setItem('username', data.username || 'User');
+    setUser({ isAuthenticated: true, username: data.username || 'User' });
   };
 
   const logout = () => {

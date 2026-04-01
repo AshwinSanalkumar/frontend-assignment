@@ -55,10 +55,10 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useStore } from 'vuex';
 import { useRouter } from 'vue-router';
-import api from '../services/api';
+import { calculate as calculatorCalculate } from '../services/calculatorService';
 import { useToast } from 'vue-toastification';
 
 export default {
@@ -74,6 +74,7 @@ export default {
     const history = ref('');
     const loading = ref(false);
     const isError = ref(false);
+    const lastOp = ref(null);
 
     const username = computed(() => store.state.username);
 
@@ -105,15 +106,14 @@ export default {
         return;
       }
 
+      lastOp.value = { operation, symbol };
       isError.value = false;
       loading.value = true;
       history.value = `${num1.value} ${symbol} ${num2.value}`;
       displayValue.value = '...';
 
       try {
-        const cleanN1 = encodeURIComponent(num1.value);
-        const cleanN2 = encodeURIComponent(num2.value);
-        const response = await api.get(`calculate/${operation}/${cleanN1}/${cleanN2}/`);
+        const response = await calculatorCalculate(operation, num1.value, num2.value);
         
         const data = response.data;
         let result = null;
@@ -128,11 +128,54 @@ export default {
       } catch (error) {
         isError.value = true;
         displayValue.value = "ERR";
-        toast.error(error.response?.data?.error || "API Handshake Failed");
+
       } finally {
         loading.value = false;
       }
     };
+
+    const handleKeyDown = (e) => {
+      // Don't trigger if user is typing in a way that interferes, 
+      // but here we want global shortcuts.
+      if (loading.value) return;
+
+      switch (e.key) {
+        case '+':
+          e.preventDefault();
+          calculate('sum', '+');
+          break;
+        case '-':
+          e.preventDefault();
+          calculate('difference', '-');
+          break;
+        case '*':
+          e.preventDefault();
+          calculate('multiply', '×');
+          break;
+        case '/':
+          e.preventDefault();
+          calculate('divide', '÷');
+          break;
+        case 'Enter':
+          if (lastOp.value) {
+            calculate(lastOp.value.operation, lastOp.value.symbol);
+          } else if (num1.value !== '' && num2.value !== '') {
+            calculate('sum', '+'); // Default to sum on Enter
+          }
+          break;
+        case 'Escape':
+          clearAll();
+          break;
+      }
+    };
+
+    onMounted(() => {
+      window.addEventListener('keydown', handleKeyDown);
+    });
+
+    onUnmounted(() => {
+      window.removeEventListener('keydown', handleKeyDown);
+    });
 
     return {
       num1, num2, displayValue, history, loading, isError,

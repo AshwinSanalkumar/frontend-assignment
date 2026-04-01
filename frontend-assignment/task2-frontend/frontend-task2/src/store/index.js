@@ -1,14 +1,10 @@
 import { createStore } from 'vuex';
-import axios from 'axios';
-
-// A separate axios instance for store so we don't cause circular dependencies
-// with api.interceptors that imports this store.
-const storeApi = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api/',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+import {
+  loginUser,
+  registerUser,
+  logoutUser,
+  refreshAccessToken,
+} from '../services/authService';
 
 export default createStore({
   state() {
@@ -45,7 +41,7 @@ export default createStore({
   },
   actions: {
     async login({ commit }, credentials) {
-      const response = await storeApi.post('login/', credentials);
+      const response = await loginUser(credentials);
       commit('SET_TOKENS', {
         access: response.data.access,
         refresh: response.data.refresh,
@@ -54,19 +50,13 @@ export default createStore({
       return response;
     },
     async register(_, userData) {
-      const response = await storeApi.post('register/', userData);
+      const response = await registerUser(userData);
       return response;
     },
     async logout({ commit, state }) {
       try {
         if (state.refreshToken) {
-          // Send request with refresh token to blacklist it on the backend
-          const requestHeaders = state.accessToken
-            ? { Authorization: `Bearer ${state.accessToken}` }
-            : {};
-          await storeApi.post('logout/', { refresh: state.refreshToken }, {
-            headers: requestHeaders
-          });
+          await logoutUser(state.refreshToken, state.accessToken);
         }
       } catch (error) {
         console.error('Logout error:', error);
@@ -80,10 +70,7 @@ export default createStore({
       }
 
       try {
-        const response = await storeApi.post('refresh/', {
-          refresh: state.refreshToken,
-        });
-
+        const response = await refreshAccessToken(state.refreshToken);
         commit('UPDATE_ACCESS_TOKEN', response.data.access);
         return response.data;
       } catch (error) {

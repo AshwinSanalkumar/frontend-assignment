@@ -5,8 +5,9 @@ import Layout from '../components/Layout';
 import Navbar from '../components/Navbar';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useToast } from '../context/ToastContext';
-import { Plus, X, File as FileIcon, Link as LinkIcon, Download, Copy, UploadCloud, ImageIcon, FileText, FileBadge, Film } from 'lucide-react';
-import api from '../api/axios';
+import { X, File as FileIcon, Eye, Download, UploadCloud, ImageIcon, FileText, FileBadge, Film, Loader2 } from 'lucide-react';
+import fileService from '../services/fileService';
+import ViewToggle from '../components/ViewToggle';
 
 // Helper to render proper icon based on MIME type
 const getFileIcon = (mimeType) => {
@@ -33,13 +34,14 @@ const Files = () => {
   const { addToast } = useToast();
   
   const [openUpload, setOpenUpload] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Share state
-  const [shareFileProps, setShareFileProps] = useState(null); // File object being shared
-  const [shareDuration, setShareDuration] = useState(5);
-  const [generatedLink, setGeneratedLink] = useState('');
+  // State for preview and download
+  const [previewFile, setPreviewFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   useEffect(() => {
     dispatch(fetchFiles());
@@ -68,39 +70,82 @@ const Files = () => {
     }
   };
 
-  const handleGenerateLink = async (e) => {
-    e.preventDefault();
+  const handleDownload = async (file) => {
     try {
-      const res = await api.post(`/files/${shareFileProps.id}/generate-link/`, {
-        duration_minutes: shareDuration
-      });
+      // Step 1: Generate a timed token (valid for 1 minute for immediate download)
+      const data = await fileService.generateFileLink(file.id, 1);
       
-      const backendUrl = res.data.download_url;
+      const backendUrl = data.download_url;
       const tokenMatches = backendUrl.match(/\/download\/([^/]+)/);
       const token = tokenMatches ? tokenMatches[1] : '';
-      const frontendLink = `${window.location.origin}/download/${token}`;
+
+      // Step 2: Fetch the blob using the token
+      const downloadRes = await fileService.downloadFileBlob(token);
+
+      // Step 3: Trigger browser download
+      const blob = new Blob([downloadRes.data], { type: file.mime_type });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', file.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
       
-      setGeneratedLink(frontendLink);
-      addToast({ title: 'Link Generated', description: 'Your secure sharing link is ready.', type: 'success' });
+      addToast({ title: 'Downloading', description: `${file.filename} is being downloaded.`, type: 'success' });
     } catch (err) {
-      addToast({ title: 'Error', description: err?.response?.data?.error || 'Failed to generate link.', type: 'error' });
+      addToast({ title: 'Download Error', description: 'Failed to process secure download.', type: 'error' });
     }
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(generatedLink);
-    addToast({ title: 'Copied!', description: 'Link copied to clipboard.', type: 'success' });
+  const handlePreview = async (file) => {
+    setIsPreviewLoading(true);
+    setPreviewFile(file);
+    try {
+      // Step 1: Generate a timed token
+      const data = await fileService.generateFileLink(file.id, 5);
+      
+      const backendUrl = data.download_url;
+      const tokenMatches = backendUrl.match(/\/download\/([^/]+)/);
+      const token = tokenMatches ? tokenMatches[1] : '';
+
+      // Step 2: Fetch the blob
+      const previewRes = await fileService.downloadFileBlob(token);
+
+      // Step 3: Create preview URL
+      const blob = new Blob([previewRes.data], { type: file.mime_type });
+      const url = window.URL.createObjectURL(blob);
+      setPreviewUrl(url);
+    } catch (err) {
+      addToast({ title: 'Preview Error', description: 'Could not load file preview.', type: 'error' });
+      setPreviewFile(null);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewUrl) {
+      window.URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewFile(null);
+    setPreviewUrl('');
+    setIsPreviewLoading(false);
   };
 
   return (
     <Layout>
-      <Navbar title="Secure Documents" description="Manage and share your protected files securely using timed links.">
+      <Navbar title="Documents" description="Access and share your secure files.">
+        <div className="flex items-center gap-4 mr-4">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+        </div>
         <Dialog.Root open={openUpload} onOpenChange={setOpenUpload}>
           <Dialog.Trigger asChild>
             <button 
               onClick={() => setSelectedFile(null)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2 transition-all">
-              <UploadCloud size={20} /> Upload File
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-2xl font-bold shadow-lg flex items-center gap-2 transition-all">
+              <UploadCloud size={18} /> Upload File
             </button>
           </Dialog.Trigger>
 
@@ -142,111 +187,128 @@ const Files = () => {
         </Dialog.Root>
       </Navbar>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {loading && items.length === 0 ? (
-          <div className="col-span-full py-12 text-center text-slate-500 font-medium">Loading documents...</div>
-        ) : items.length > 0 ? items.map(file => (
-          <div key={file.id} className="bg-white rounded-3xl border border-slate-100 p-6 flex items-start gap-4 hover:shadow-lg transition-all group">
-            <div className="w-16 h-16 shrink-0 bg-slate-50 text-indigo-500 rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 group-hover:scale-110 transition-all">
-              {getFileIcon(file.mime_type)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-slate-800 text-lg truncate" title={file.filename}>{file.filename}</h3>
-              <p className="text-sm font-medium text-slate-400 mb-4">{formatBytes(file.file_size_bytes)} &bull; {file.mime_type}</p>
-              
-              <button 
-                onClick={() => {
-                  setShareFileProps(file);
-                  setGeneratedLink('');
-                  setShareDuration(5);
-                }}
-                className="text-sm font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 py-2 px-4 rounded-xl transition-colors flex gap-2 items-center"
-              >
-                <LinkIcon size={16} /> Share Link
-              </button>
-            </div>
-          </div>
-        )) : (
-          <div className="col-span-full py-12 text-center text-slate-500 font-medium bg-white rounded-3xl border border-slate-100 border-dashed">
-            No secure files uploaded yet.
-          </div>
-        )}
-      </div>
-
-      {/* Share Dialog */}
-      <Dialog.Root open={!!shareFileProps} onOpenChange={(open) => !open && setShareFileProps(null)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-lg border border-slate-100 outline-none">
-            <div className="flex justify-between items-center mb-6">
-              <Dialog.Title className="text-2xl font-bold">Generate Secure Link</Dialog.Title>
-              <Dialog.Close className="text-slate-400"><X size={24} /></Dialog.Close>
-            </div>
-            
-            {generatedLink ? (
-              <div className="space-y-6">
-                <div className="bg-emerald-50 text-emerald-800 p-4 rounded-2xl font-medium border border-emerald-100 text-sm">
-                  Success! This secure link will automatically expire in {shareDuration} minutes. Only authorized users with this exact link can download the file.
-                </div>
+      {viewMode === 'grid' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {loading && items.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-slate-500 font-medium">Loading documents...</div>
+          ) : items.length > 0 ? items.map(file => (
+            <div key={file.id} className="bg-white rounded-3xl border border-slate-100 p-6 flex items-start gap-4 hover:shadow-lg transition-all group">
+              <div className="w-16 h-16 shrink-0 bg-slate-50 text-indigo-500 rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 group-hover:scale-110 transition-all">
+                {getFileIcon(file.mime_type)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-slate-800 text-lg truncate" title={file.filename}>{file.filename}</h3>
+                <p className="text-sm font-medium text-slate-400 mb-4">{formatBytes(file.file_size_bytes)} &bull; {file.mime_type}</p>
                 
-                <div className="relative group">
-                  <input 
-                    readOnly 
-                    value={generatedLink}
-                    className="w-full p-4 pr-16 bg-slate-50 rounded-2xl border border-slate-200 outline-none font-medium text-slate-600"
-                  />
+                <div className="flex gap-2">
                   <button 
-                    onClick={handleCopyLink}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
-                    title="Copy to clipboard"
+                    onClick={() => handlePreview(file)}
+                    className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 py-2 px-3 rounded-xl transition-colors flex gap-2 items-center"
                   >
-                    <Copy size={18} />
+                    <Eye size={14} /> Preview
                   </button>
-                </div>
-
-                <div className="text-center pt-2">
                   <button 
-                    onClick={() => {
-                      setShareFileProps(null);
-                      setGeneratedLink('');
-                    }}
-                    className="text-slate-500 font-bold hover:text-slate-800 transition-colors"
+                    onClick={() => handleDownload(file)}
+                    className="text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 py-2 px-3 rounded-xl transition-colors flex gap-2 items-center"
                   >
-                    Close
+                    <Download size={14} /> Download
                   </button>
                 </div>
               </div>
-            ) : (
-              <form onSubmit={handleGenerateLink} className="space-y-6">
-                <div>
-                  <p className="text-sm font-medium text-slate-500 mb-2">Selected File</p>
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold truncate">
-                    {shareFileProps?.filename}
+            </div>
+          )) : (
+            <div className="col-span-full py-12 text-center text-slate-500 font-medium bg-white rounded-3xl border border-slate-100 border-dashed">
+              No secure files uploaded yet.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">File Name</th>
+                <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">Size</th>
+                <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
+                <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length > 0 ? items.map(file => (
+                <tr key={file.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors group">
+                  <td className="p-5">
+                    <div className="flex items-center gap-4">
+                      <div className="text-indigo-500 group-hover:scale-110 transition-transform">
+                        {React.cloneElement(getFileIcon(file.mime_type), { size: 20 })}
+                      </div>
+                      <span className="font-bold text-slate-800 line-clamp-1 truncate max-w-xs">{file.filename}</span>
+                    </div>
+                  </td>
+                  <td className="p-5">
+                    <span className="text-sm font-medium text-slate-500">{formatBytes(file.file_size_bytes)}</span>
+                  </td>
+                  <td className="p-5">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{file.mime_type}</span>
+                  </td>
+                  <td className="p-5">
+                    <div className="flex justify-end gap-3 text-slate-400">
+                      <button onClick={() => handlePreview(file)} className="p-1 hover:text-indigo-600 transition-colors" title="Preview"><Eye size={18} /></button>
+                      <button onClick={() => handleDownload(file)} className="p-1 hover:text-indigo-600 transition-colors" title="Download"><Download size={18} /></button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan="4" className="p-12 text-center text-slate-500 font-medium">No files found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Preview Dialog */}
+      <Dialog.Root open={!!previewFile} onOpenChange={(open) => !open && closePreview()}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40" />
+          <Dialog.Content className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-[2.5rem] shadow-2xl w-full max-w-4xl border border-slate-100 outline-none max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <div>
+                <Dialog.Title className="text-xl font-bold truncate max-w-md">{previewFile?.filename}</Dialog.Title>
+                <p className="text-sm text-slate-400 font-medium">{previewFile?.mime_type} &bull; {previewFile && formatBytes(previewFile.file_size_bytes)}</p>
+              </div>
+              <Dialog.Close className="text-slate-400 p-2 hover:bg-slate-50 rounded-full transition-colors"><X size={24} /></Dialog.Close>
+            </div>
+            
+            <div className="flex-1 min-h-0 bg-slate-50 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-100">
+              {isPreviewLoading ? (
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                  <p className="text-slate-500 font-bold">Decrypting secure file...</p>
+                </div>
+              ) : previewUrl ? (
+                previewFile?.mime_type.includes('image') ? (
+                  <img src={previewUrl} alt={previewFile.filename} className="max-w-full max-h-full object-contain" />
+                ) : previewFile?.mime_type.includes('pdf') ? (
+                  <iframe src={previewUrl} className="w-full h-150 border-none" title="PDF Preview" />
+                ) : previewFile?.mime_type.includes('video') ? (
+                  <video src={previewUrl} controls className="max-w-full max-h-full" />
+                ) : previewFile?.mime_type.includes('text') || previewFile?.mime_type.includes('json') ? (
+                  <iframe src={previewUrl} className="w-full h-full border-none bg-white p-4" title="Text Preview" />
+                ) : (
+                  <div className="text-center p-8">
+                    <FileIcon size={64} className="mx-auto mb-4 text-slate-300" />
+                    <p className="text-slate-500 font-bold mb-4">Preview not available for this file type.</p>
+                    <button 
+                      onClick={() => handleDownload(previewFile)}
+                      className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2 mx-auto"
+                    >
+                      <Download size={18} /> Download Instead
+                    </button>
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-slate-500 mb-2 block">Link Expiration (Minutes)</label>
-                  <select 
-                    value={shareDuration} 
-                    onChange={(e) => setShareDuration(Number(e.target.value))}
-                    className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                  >
-                    <option value={5}>5 Minutes</option>
-                    <option value={15}>15 Minutes</option>
-                    <option value={60}>1 Hour</option>
-                    <option value={1440}>24 Hours</option>
-                  </select>
-                </div>
-
-                <button 
-                  type="submit" 
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold mt-2 hover:bg-indigo-700 shadow-lg flex justify-center items-center gap-2 transition-all"
-                >
-                  <LinkIcon size={20} /> Generate Download URL
-                </button>
-              </form>
-            )}
+                )
+              ) : null}
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

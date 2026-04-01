@@ -1,14 +1,14 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import api from '../api/axios';
+import fileService from '../services/fileService';
 
 export const fetchFiles = createAsyncThunk('files/fetch', async () => {
-  const res = await api.get('/files/list/');
-  return res.data;
+  const data = await fileService.getFiles();
+  return data;
 });
 
 export const uploadFile = createAsyncThunk('files/upload', async (formData, { dispatch, rejectWithValue }) => {
   try {
-    await api.post('/files/upload/', formData);
+    await fileService.uploadFile(formData);
     dispatch(fetchFiles());
   } catch (err) {
     return rejectWithValue(err.response?.data || 'Upload failed');
